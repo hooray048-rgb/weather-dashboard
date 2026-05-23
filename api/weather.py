@@ -19,8 +19,10 @@ def get_cached_results(service_key):
     ):
         return _cache["data"]
     results = asyncio.run(run_all_locations_async(service_key, locations))
-    _cache["data"] = results
-    _cache["timestamp"] = now
+    success_count = sum(1 for r in results if r.get("status") != "오류")
+    if success_count >= len(results) // 2:
+        _cache["data"] = results
+        _cache["timestamp"] = now
     return results
 
 def format_weather_response(raw_data, location_info):

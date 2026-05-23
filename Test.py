@@ -255,7 +255,7 @@ def send_email_report(report_data, sender_email, app_password, receiver_email):
 
 async def process_location(client, semaphore, loc, service_key):
     async with semaphore:
-        await asyncio.sleep(0.5)
+        await asyncio.sleep(1.0)
         print(f"📍 {loc['name']} 분석 중...")
         try:
             forecast = await get_tomorrow_forecast_async(client, service_key, loc['lat'], loc['lon'])
@@ -281,7 +281,7 @@ async def process_location(client, semaphore, loc, service_key):
             }
 
 async def run_all_locations_async(service_key, locations):
-    semaphore = asyncio.Semaphore(2)
+    semaphore = asyncio.Semaphore(1)
     async with httpx.AsyncClient() as client:
         tasks = [process_location(client, semaphore, loc, service_key) for loc in locations]
         results = await asyncio.gather(*tasks)
