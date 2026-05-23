@@ -5,7 +5,7 @@ from api.weather import weather_bp
 
 def create_app():
     app = Flask(__name__, static_folder='static', static_url_path='/static')
-    app.config['JSON_AS_ASCII'] = False
+    app.json.ensure_ascii = False
 
     config = get_config()
     app.config.from_object(config)
