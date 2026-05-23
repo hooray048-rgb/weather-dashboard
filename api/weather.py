@@ -6,6 +6,23 @@ from datetime import datetime
 
 weather_bp = Blueprint('weather', __name__, url_prefix='/api/weather')
 
+_cache = {"data": None, "timestamp": None}
+CACHE_TTL_SECONDS = 300  # 5분
+
+
+def get_cached_results(service_key):
+    now = datetime.now()
+    if (
+        _cache["data"] is not None
+        and _cache["timestamp"] is not None
+        and (now - _cache["timestamp"]).total_seconds() < CACHE_TTL_SECONDS
+    ):
+        return _cache["data"]
+    results = asyncio.run(run_all_locations_async(service_key, locations))
+    _cache["data"] = results
+    _cache["timestamp"] = now
+    return results
+
 def format_weather_response(raw_data, location_info):
     """API 응답 데이터를 프론트엔드 형식으로 변환"""
     # 상태에서 조건 추론
@@ -54,7 +71,7 @@ def get_all_weather():
         }), 500
 
     try:
-        results = asyncio.run(run_all_locations_async(service_key, locations))
+        results = get_cached_results(service_key)
 
         # 각 결과를 프론트엔드 형식으로 변환
         formatted_results = []

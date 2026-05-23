@@ -73,31 +73,54 @@ locations = [
     {"name": "안동 물류", "lat": 36.5896, "lon": 128.6253},
 ]
 
+def get_base_time():
+    """현재 시각 기준으로 가장 최근에 발표된 예보 기준 시각 반환"""
+    now = datetime.now()
+    base_times = [2, 5, 8, 11, 14, 17, 20, 23]
+    # 발표 후 10분 뒤부터 사용 가능
+    current_hour = now.hour if now.minute >= 10 else now.hour - 1
+    for t in reversed(base_times):
+        if current_hour >= t:
+            return f"{t:02d}00"
+    # 자정 이전이면 전날 2300 사용
+    return "2300"
+
 async def get_tomorrow_forecast_async(client, service_key, lat, lon):
     nx, ny = convert_to_grid(lat, lon)
-    today = datetime.now()
-    tomorrow = (today + timedelta(days=1)).strftime('%Y%m%d')
+    now = datetime.now()
+    base_time = get_base_time()
+    # 23시 기준이면 전날 날짜 사용
+    if base_time == "2300" and now.hour < 2:
+        base_date = (now - timedelta(days=1)).strftime('%Y%m%d')
+    else:
+        base_date = now.strftime('%Y%m%d')
+    tomorrow = (now + timedelta(days=1)).strftime('%Y%m%d')
+
     url = "http://apis.data.go.kr/1360000/VilageFcstInfoService_2.0/getVilageFcst"
     params = {
         'serviceKey': service_key,
         'pageNo': '1',
         'numOfRows': '1000',
         'dataType': 'JSON',
-        'base_date': today.strftime('%Y%m%d'),
-        'base_time': '0500', 
+        'base_date': base_date,
+        'base_time': base_time,
         'nx': nx,
         'ny': ny
     }
 
     try:
-        response = await client.get(url, params=params, timeout=10.0)
+        response = await client.get(url, params=params, timeout=20.0)
         res_json = response.json()
+        result_code = res_json.get('response', {}).get('header', {}).get('resultCode', '')
+        if result_code != '00':
+            result_msg = res_json.get('response', {}).get('header', {}).get('resultMsg', '알 수 없는 오류')
+            raise ValueError(f"API 오류 [{result_code}]: {result_msg}")
         items = res_json['response']['body']['items']['item']
         tomorrow_data = [item for item in items if item['fcstDate'] == tomorrow]
         return tomorrow_data
     except Exception as e:
         print(f"예보 데이터 수집 오류 ({nx}, {ny}): {e}")
-        return None
+        raise
     
 def analyze_tomorrow_safety(forecast_items):
     has_rain = False
@@ -232,24 +255,33 @@ def send_email_report(report_data, sender_email, app_password, receiver_email):
 
 async def process_location(client, semaphore, loc, service_key):
     async with semaphore:
+        await asyncio.sleep(0.5)
         print(f"📍 {loc['name']} 분석 중...")
-        forecast = await get_tomorrow_forecast_async(client, service_key, loc['lat'], loc['lon'])
-        
-        if forecast:
-            analysis = analyze_tomorrow_safety(forecast)
-            analysis["name"] = loc['name']
-            return analysis
-        else:
+        try:
+            forecast = await get_tomorrow_forecast_async(client, service_key, loc['lat'], loc['lon'])
+            if forecast:
+                analysis = analyze_tomorrow_safety(forecast)
+                analysis["name"] = loc['name']
+                return analysis
+            else:
+                return {
+                    "name": loc['name'],
+                    "status": "오류",
+                    "max_temp": None, "min_temp": None,
+                    "max_perceived": None, "min_perceived": None,
+                    "alerts": ["데이터 없음: 해당 시간대 예보 데이터가 존재하지 않습니다."]
+                }
+        except Exception as e:
             return {
                 "name": loc['name'],
                 "status": "오류",
                 "max_temp": None, "min_temp": None,
                 "max_perceived": None, "min_perceived": None,
-                "alerts": ["데이터 수집 실패"]
+                "alerts": [f"데이터 수집 실패: {str(e)}"]
             }
 
 async def run_all_locations_async(service_key, locations):
-    semaphore = asyncio.Semaphore(5)
+    semaphore = asyncio.Semaphore(2)
     async with httpx.AsyncClient() as client:
         tasks = [process_location(client, semaphore, loc, service_key) for loc in locations]
         results = await asyncio.gather(*tasks)
