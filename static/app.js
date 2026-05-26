@@ -117,7 +117,10 @@ function createWeatherCard(item) {
     const location = item.location || {};
     const weather = item.weather || {};
     const condition = weather.condition || '정보 없음';
-    const precipitation = weather.precipitation || 0;
+    const precipitation = weather.precipitation ?? 0;
+    const pop = weather.pop ?? 0;
+    const humidity = weather.humidity;
+    const windSpeed = weather.wind_speed;
     const rawData = item.raw_data || {};
 
     const avgTemp = weather.temperature !== 'N/A' ? weather.temperature : null;
@@ -149,6 +152,23 @@ function createWeatherCard(item) {
             </div>`;
     }
 
+    const precipText = precipitation > 0
+        ? `${precipitation}mm`
+        : '없음';
+    const popText = pop > 0 ? ` (확률 ${pop}%)` : '';
+
+    const humidityHtml = (humidity != null && humidity !== 'N/A') ? `
+        <div class="weather-info-row">
+            <span class="weather-label">습도</span>
+            <span class="weather-value">${humidity}%</span>
+        </div>` : '';
+
+    const windHtml = (windSpeed != null && windSpeed !== 'N/A') ? `
+        <div class="weather-info-row">
+            <span class="weather-label">평균 풍속</span>
+            <span class="weather-value">${windSpeed}m/s</span>
+        </div>` : '';
+
     return `
         <div class="weather-card">
             <div class="card-header">
@@ -167,8 +187,10 @@ function createWeatherCard(item) {
             <div class="weather-info">
                 <div class="weather-info-row">
                     <span class="weather-label">강수량</span>
-                    <span class="weather-value">${precipitation}mm</span>
+                    <span class="weather-value">${precipText}${popText}</span>
                 </div>
+                ${humidityHtml}
+                ${windHtml}
                 ${perceivedHtml}
                 ${rawData.alerts && rawData.alerts.length > 0 ? `
                 <div class="weather-alerts">

@@ -62,6 +62,9 @@ def format_weather_response(raw_data, location_info):
     else:
         temp = round((raw_data.get('max_temp', 0) + raw_data.get('min_temp', 0)) / 2, 1)
 
+    humidity = raw_data.get("humidity")
+    wind_speed = raw_data.get("wind_speed")
+
     return {
         "location": {
             "name": raw_data.get("name", "알 수 없는 거점"),
@@ -71,9 +74,10 @@ def format_weather_response(raw_data, location_info):
         "weather": {
             "temperature": temp,
             "condition": condition,
-            "humidity": "N/A",
-            "wind_speed": "N/A",
-            "precipitation": 0
+            "humidity": humidity if humidity is not None else "N/A",
+            "wind_speed": wind_speed if wind_speed is not None else "N/A",
+            "precipitation": raw_data.get("precipitation", 0),
+            "pop": raw_data.get("pop", 0)
         },
         "timestamp": datetime.now().isoformat(),
         "raw_data": raw_data

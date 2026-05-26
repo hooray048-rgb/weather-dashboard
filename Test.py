@@ -122,6 +122,25 @@ async def get_tomorrow_forecast_async(client, service_key, lat, lon):
         print(f"예보 데이터 수집 오류 ({nx}, {ny}): {e}")
         raise
     
+def parse_pcp(raw_val):
+    """기상청 강수량 문자열(PCP/SNO)을 mm 숫자로 변환"""
+    if not raw_val or raw_val in ('강수없음', '적설없음'):
+        return 0.0
+    if '미만' in raw_val:
+        return 0.5
+    if '이상' in raw_val:
+        num_str = raw_val.replace('mm', '').replace('cm', '').replace('이상', '').strip()
+        try:
+            return float(num_str)
+        except ValueError:
+            return 30.0
+    num_str = raw_val.replace('mm', '').replace('cm', '').strip()
+    try:
+        return float(num_str)
+    except ValueError:
+        return 0.0
+
+
 def analyze_tomorrow_safety(forecast_items):
     has_rain = False
     has_snow = False
@@ -135,14 +154,16 @@ def analyze_tomorrow_safety(forecast_items):
         cat = item['category']
         raw_val = item['fcstValue']
 
-        if raw_val in ['강수없음', '적설없음']:
+        if cat in ('PCP', 'SNO'):
+            val = parse_pcp(raw_val)
+        elif raw_val in ('강수없음', '적설없음'):
             val = 0.0
         else:
             try:
                 val = float(raw_val)
             except ValueError:
                 val = 0.0
-        
+
         if time not in time_data:
             time_data[time] = {}
         time_data[time][cat] = val
@@ -207,12 +228,23 @@ def analyze_tomorrow_safety(forecast_items):
             alerts.append(f"🥶 [한파 대비] 내일 최저 {min_temp}도(체감 {min_perceived:.1f}도)의 강추위!")
             status = "주의"
 
+    total_precipitation = round(sum(t.get('PCP', 0) for t in time_data.values()), 1)
+    max_pop = max((int(t.get('POP', 0)) for t in time_data.values()), default=0)
+    reh_vals = [t['REH'] for t in time_data.values() if 'REH' in t]
+    avg_humidity = round(sum(reh_vals) / len(reh_vals)) if reh_vals else None
+    wsd_vals = [t['WSD'] for t in time_data.values() if 'WSD' in t]
+    avg_wind = round(sum(wsd_vals) / len(wsd_vals), 1) if wsd_vals else None
+
     return {
         "status": status,
         "max_temp": round(max_temp, 1),
         "min_temp": round(min_temp, 1),
         "max_perceived": round(max_perceived, 1) if max_perceived > -90 else None,
         "min_perceived": round(min_perceived, 1) if min_perceived < 90 else None,
+        "precipitation": total_precipitation,
+        "pop": max_pop,
+        "humidity": avg_humidity,
+        "wind_speed": avg_wind,
         "alerts": alerts
     }
 
