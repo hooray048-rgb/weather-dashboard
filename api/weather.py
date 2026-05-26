@@ -1,29 +1,46 @@
 from flask import Blueprint, jsonify
 import asyncio
+import threading
 from Test import run_all_locations_async, locations
 from config import WeatherConfig
 from datetime import datetime
 
 weather_bp = Blueprint('weather', __name__, url_prefix='/api/weather')
 
-_cache = {"data": None, "timestamp": None}
+_cache = {"data": None, "timestamp": None, "refreshing": False}
 CACHE_TTL_SECONDS = 300  # 5분
+
+
+def _do_refresh(service_key):
+    try:
+        results = asyncio.run(run_all_locations_async(service_key, locations))
+        success_count = sum(1 for r in results if r.get("status") != "오류")
+        if success_count >= len(results) // 2:
+            _cache["data"] = results
+            _cache["timestamp"] = datetime.now()
+    finally:
+        _cache["refreshing"] = False
 
 
 def get_cached_results(service_key):
     now = datetime.now()
-    if (
+    is_fresh = (
         _cache["data"] is not None
         and _cache["timestamp"] is not None
         and (now - _cache["timestamp"]).total_seconds() < CACHE_TTL_SECONDS
-    ):
+    )
+    if is_fresh:
         return _cache["data"]
-    results = asyncio.run(run_all_locations_async(service_key, locations))
-    success_count = sum(1 for r in results if r.get("status") != "오류")
-    if success_count >= len(results) // 2:
-        _cache["data"] = results
-        _cache["timestamp"] = now
-    return results
+
+    # 캐시가 없으면 동기 대기, 있지만 만료됐으면 백그라운드 갱신
+    if _cache["data"] is None:
+        _do_refresh(service_key)
+        return _cache["data"] or []
+    else:
+        if not _cache["refreshing"]:
+            _cache["refreshing"] = True
+            threading.Thread(target=_do_refresh, args=(service_key,), daemon=True).start()
+        return _cache["data"]
 
 def format_weather_response(raw_data, location_info):
     """API 응답 데이터를 프론트엔드 형식으로 변환"""
